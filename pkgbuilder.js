@@ -16,7 +16,7 @@ console.log(`
   \\ V /| |   < (_| | (_| | (_| | || (_| |
    \\_/ |_|_|\\_\\__,_|\\__,_|\\__,_|\\__\\__,_|
 
-    维格表附件批量下载器 v1.0.0
+    维格表附件批量下载器 v1.0.1
     ☆维格实验室出品☆
 
 ***************************************************
@@ -93,7 +93,7 @@ function initQuestions(appConfig){
         {
             type: 'input',
             name: 'userToken',
-            message: '请填写你的维格表用户令牌：',
+            message: '请填写你的维格表API Token(用户中心页面可获得)：',
             validate: validateUserToken,
             default: appConfig.userToken ? appConfig.userToken : null
         },

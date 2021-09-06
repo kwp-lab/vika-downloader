@@ -1,6 +1,6 @@
 {
   "name": "vika-downloader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "batch download vikadata's attachments",
   "main": "pkgbuilder.js",
   "scripts": {
