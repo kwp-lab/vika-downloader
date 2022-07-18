@@ -70,3 +70,13 @@ pkg pkgbuilder.js -t node14-win-x64,node14-macos-x64 -o ./dist/vikaDownloader
 npm run build
 
 ```
+
+### Q & A
+
+如果是使用的维格表专有云版本，需要自定API请求的host，可以修改 `pkgbuilder.js` 的如下位置：
+```javascript
+var appConfig = {
+    //...
+    host: "https://api.vika.cn/fusion/v1" //将此处的域名改为专有云部署的域名或IP
+}
+```

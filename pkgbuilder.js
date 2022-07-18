@@ -4,8 +4,17 @@ const path = require('path')
 const Axios = require('axios')
 const Vika = require('@vikadata/vika').default
 
-var inquirer = require('inquirer');
-const { listenerCount } = require('events');
+var inquirer = require('inquirer')
+
+var appConfig = {
+    isDebug: true,
+    userToken: "",
+    datasheetUrl: "",
+    datasheetId: "",
+    viewId: "",
+    attachmentField: "",
+    host: "https://api.vika.cn/fusion/v1"
+}
 
 console.log(`
 ***************************************************
@@ -83,12 +92,14 @@ function initQuestions(appConfig){
         {
             type: 'input',
             name: 'datasheetUrl',
-            message: '从哪个维格表中读取数据，请粘贴URL：'
+            message: '从哪个维格表中读取数据，请粘贴URL：',
+            default: appConfig.datasheetUrl ? appConfig.datasheetUrl : null
         },
         {
             type: 'input',
             name: 'attachmentField',
-            message: '附件所在的列名称'
+            message: '附件所在的列名称',
+            default: appConfig.attachmentField ? appConfig.attachmentField : null
         },
         {
             type: 'input',
@@ -116,7 +127,7 @@ function validateFilePath(output, attachment_name, mimeType){
     }else if(mimeType == "image/jpeg"){
         var extension = ".jpg"
     }
-    var pathStr = path.resolve(output, attachment_name + extension)
+    var pathStr = path.resolve(output, attachment_name.substr(0, pos) + extension)
 
     if (fs.existsSync(pathStr)) {
         
@@ -134,37 +145,121 @@ function validateFilePath(output, attachment_name, mimeType){
     return pathStr
 }
 
-async function downloadImage(attachment) {
+/**
+ * 获取不重复的唯一文件名称
+ */
+function getUnionFilename(attachment, existedFilenames){
+    var attachment_name = attachment.name
+    var pos = attachment_name.lastIndexOf('?')
+    if(pos>=0){
+        attachment_name = attachment_name.substr(0, pos)
+    }
+    
 
-    const path = validateFilePath(outputPath, attachment.name, attachment.mimeType)
+    pos = attachment_name.lastIndexOf('.')
+
+    if(pos>=0){
+        var extension = attachment_name.substr(pos)
+        var attachment_basename = attachment_name.substr(0, pos) + extension
+    }else if(attachment.mimeType == "image/jpeg"){
+        var extension = ".jpg"
+        var attachment_basename = attachment_name + extension
+    }
+    
+    if (existedFilenames.indexOf(attachment_basename)>-1) {
+
+        for(var i=1; i<9999; i++){
+            attachment_basename = attachment_name.substr(0, pos) + "_" + i + extension
+            if (existedFilenames.indexOf(attachment_basename) == -1) {
+                break;
+            }
+        }   
+    }
+
+    existedFilenames.push(attachment_basename)
+    return attachment_basename
+}
+
+function getFloat(number, n) {
+	n = n ? parseInt(n) : 0;
+	if(n <= 0) {
+		return Math.round(number);
+	}
+	number = Math.round(number * Math.pow(10, n)) / Math.pow(10, n); //四舍五入
+	number = Number(number).toFixed(n); //补足位数
+	return number;
+}
+
+async function downloadImage(attachment, unionFilename) {
+    const path = validateFilePath(outputPath, unionFilename, attachment.mimeType)
 
     const writer = fs.createWriteStream(path)
+    let counter = 0;
+    let bytesWrittenLastTime = 0;
 
-    const response = await Axios({
+    const intervalFlag = setInterval(()=>{
+        if( (writer.bytesWritten > bytesWrittenLastTime) || (attachment.size == writer.bytesWritten) ){
+            bytesWrittenLastTime = writer.bytesWritten
+        }else{
+            console.log(`[${counter}]下载数据缓慢，已写入${getFloat(writer.bytesWritten/1024/1024, 4)}MB: ${path}`)
+            counter++
+        }
+        
+        if(counter>20){
+            console.log("!!!\n[文件下载失败]"+path+"\n\n")
+            clearInterval(intervalFlag)
+            writer.close()
+            process.exit(1)
+        }
+    },2000)
+
+    return await Axios({
         url: attachment.url,
         method: 'GET',
         responseType: 'stream'
-    })
-
-    response.data.pipe(writer)
-
-    return new Promise((resolve, reject) => {
-        writer.on('finish', ()=>{
-            console.log("下载成功："+ path)
-            resolve()
+    }).then( async(response) => {
+        
+        
+        response.data.pipe(writer)
+        await new Promise((resolve, reject) => {
+            
+            writer.on('open', ()=>{
+                //console.log("下载开始："+ path)
+            })
+            writer.on('finish', ()=>{
+                clearInterval(intervalFlag)
+                console.log("下载成功："+ path)
+                resolve()
+            })
+            writer.on('error', ()=>{
+                console.log("文件无法保存到本地："+ path)
+                resolve() //忽略此错误，跳过
+            })
         })
-        writer.on('error', reject)
+    }).catch(function (error) {
+        console.log("无法下载此文件："+path)
+        console.log(error)
+        clearInterval(intervalFlag)
     })
 }
 
 async function download(attachments){
     var tmp = [];
+    var attachmentUnionNames = []
+    console.log("attachmentUnionNames", attachmentUnionNames)
     for(var i=0; i<attachments.length; i++){
         tmp.push(attachments[i])
-        if(i>1 && i%10==0){
-            console.log(`正在下载附件[${i-8} 至 ${i+1}]`)
-            var results = tmp.map(item =>{
-                return downloadImage(item)
+        if(i>1 && i%5==0){
+            console.log(`正在下载附件[${i-4} 至 ${i}]`)
+            const results = tmp.map(async(attachment, index) =>{
+                try {
+                    const unionFilename = getUnionFilename(attachment, attachmentUnionNames)
+                    console.log(`文件${index+1}： ${unionFilename}`)
+                    return await downloadImage(attachment, unionFilename)
+                } catch (error) {
+                    console.log("ee", error)
+                    return Promise.reject()
+                }
             })
 
             await Promise.all(results)
@@ -175,11 +270,13 @@ async function download(attachments){
 
     if(tmp.length>0){
         console.log(`正在下载附件`)
-        var results = tmp.map(item =>{
-            return downloadImage(item)
+        const results2 = tmp.map(async(attachment) =>{
+            const unionFilename = getUnionFilename(attachment, attachmentUnionNames)
+            console.log("开始下一个文件：" + unionFilename)
+            return await downloadImage(attachment, unionFilename)
         })
 
-        await Promise.all(results)
+        await Promise.all(results2)
     }
 
     return Promise.resolve("OK")
@@ -248,21 +345,11 @@ async function run() {
     // 创建output文件夹
     createDefaultFolder()
 
-    Vika.auth({ token: appConfig.userToken });
+    Vika.auth({ token: appConfig.userToken, host: appConfig.host });
 
     await downloadAttachmentsBySteps(param)
 
     console.log("下载完成!")
-}
-
-
-// 缺省情况下的默认配置
-var appConfig = {
-    isDebug: true,
-    userToken: "",
-    datasheetUrl: "",
-    datasheetId: "",
-    viewId: ""
 }
 
 var questions = initQuestions(appConfig)
