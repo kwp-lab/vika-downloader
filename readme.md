@@ -27,6 +27,9 @@
 将 dist 文件夹下的 vikaDownloader-macos 复制到你喜欢的其他文件夹里，通过如下方式执行
 
 ```bash
+// 进入 vikaDownloader-macos 的所在文件夹（请自行填写实际的文件夹路径）
+cd /path/to/folder
+
 // 授予“可执行”权限
 sudo chmod +x vikaDownloader-macos
 
